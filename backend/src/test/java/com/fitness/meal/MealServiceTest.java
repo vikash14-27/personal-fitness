@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -72,6 +73,52 @@ class MealServiceTest {
   }
 
   @Test
+  void acceptsTheInclusiveDayWindow() {
+    when(meals.save(any(Meal.class))).thenAnswer(invocation -> {
+      Meal meal = invocation.getArgument(0);
+      meal.setId("meal-1");
+      return meal;
+    });
+    LocalDate earliest = MealBounds.MIN_DAY;
+    LocalDate latest = LocalDate.now().plusYears(2);
+
+    assertThat(service.create("user-1", request(earliest, "0", "0")).day()).isEqualTo(earliest);
+    assertThat(service.create("user-1", request(latest, "10000", "1000")).day()).isEqualTo(latest);
+
+    assertThatThrownBy(() -> service.create("user-1", request(latest.plusDays(1), "1", "0")))
+        .isInstanceOf(ApiException.class)
+        .extracting("status", "error")
+        .containsExactly(HttpStatus.BAD_REQUEST, "validation_failed");
+    verify(meals, times(2)).save(any());
+  }
+
+  @Test
+  void anInvalidDayDoesNotLoadOrSaveTheMeal() {
+    assertThatThrownBy(() -> service.update(
+            "user-1",
+            "meal-1",
+            request(LocalDate.of(1999, 1, 1), "10", "1")))
+        .isInstanceOf(ApiException.class)
+        .extracting("status", "error")
+        .containsExactly(HttpStatus.BAD_REQUEST, "validation_failed");
+
+    verify(meals, never()).findByIdAndUserId(any(), any());
+    verify(meals, never()).save(any());
+  }
+
+  @Test
+  void updatingAnotherUsersMealIsNotFound() {
+    when(meals.findByIdAndUserId("meal-1", "user-2")).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -> service.update("user-2", "meal-1", request(LocalDate.of(2026, 9, 28), "400", "20")))
+        .isInstanceOf(ApiException.class)
+        .extracting("status", "error")
+        .containsExactly(HttpStatus.NOT_FOUND, "meal_not_found");
+    verify(meals, never()).save(any());
+    verify(meals, never()).delete(any(Meal.class));
+  }
+
+  @Test
   void editAndDeleteStayOnTheOwningUser() {
     Meal owned = stored("meal-1", "user-1");
     when(meals.findByIdAndUserId("meal-1", "user-1")).thenReturn(Optional.of(owned));
@@ -111,6 +158,76 @@ class MealServiceTest {
     assertThat(day.totals().carbsG()).isEqualTo(35.5);
     assertThat(day.totals().fatG()).isEqualTo(20.4);
     assertThat(day.remainingCalories()).isEqualTo(1550);
+  }
+
+  @Test
+  void remainingCaloriesCanBeNegativeAndZero() {
+    when(profiles.get("user-1")).thenReturn(profile(1800, CalorieGoalSource.OVERRIDE));
+    when(meals.findByUserIdAndDayOrderByCreatedAtAsc("user-1", LocalDate.of(2026, 9, 28)))
+        .thenReturn(List.of(
+            stored("meal-1", "user-1", 2000, 10.0, 20.0, 30.0),
+            stored("meal-2", "user-1", 100, 1.5, 0.5, 0.5)));
+
+    DayResponse over = service.day("user-1", LocalDate.of(2026, 9, 28));
+
+    assertThat(over.calorieGoal()).isEqualTo(1800);
+    assertThat(over.calorieGoalSource()).isEqualTo(CalorieGoalSource.OVERRIDE);
+    assertThat(over.totals().calories()).isEqualTo(2100);
+    assertThat(over.totals().proteinG()).isEqualTo(11.5);
+    assertThat(over.totals().carbsG()).isEqualTo(20.5);
+    assertThat(over.totals().fatG()).isEqualTo(30.5);
+    assertThat(over.remainingCalories()).isEqualTo(-300);
+
+    when(profiles.get("user-1")).thenReturn(profile(2100, CalorieGoalSource.COMPUTED));
+    DayResponse exact = service.day("user-1", LocalDate.of(2026, 9, 28));
+    assertThat(exact.calorieGoal()).isEqualTo(2100);
+    assertThat(exact.calorieGoalSource()).isEqualTo(CalorieGoalSource.COMPUTED);
+    assertThat(exact.remainingCalories()).isZero();
+  }
+
+  @Test
+  void anEmptyDayUsesTheComputedGoal() {
+    when(profiles.get("user-1")).thenReturn(profile(2364, CalorieGoalSource.COMPUTED));
+    when(meals.findByUserIdAndDayOrderByCreatedAtAsc("user-1", LocalDate.of(2026, 9, 28)))
+        .thenReturn(List.of());
+
+    DayResponse day = service.day("user-1", LocalDate.of(2026, 9, 28));
+
+    assertThat(day.calorieGoal()).isEqualTo(2364);
+    assertThat(day.calorieGoalSource()).isEqualTo(CalorieGoalSource.COMPUTED);
+    assertThat(day.meals()).isEmpty();
+    assertThat(day.totals()).isEqualTo(new MacroTotals(0, 0.0, 0.0, 0.0));
+    assertThat(day.remainingCalories()).isEqualTo(2364);
+  }
+
+  @Test
+  void dayViewOpensDatesOutsideTheSaveWindow() {
+    LocalDate historical = LocalDate.of(1999, 12, 31);
+    when(profiles.get("user-1")).thenReturn(profile(2364, CalorieGoalSource.COMPUTED));
+    when(meals.findByUserIdAndDayOrderByCreatedAtAsc("user-1", historical)).thenReturn(List.of());
+
+    DayResponse day = service.day("user-1", historical);
+
+    assertThat(day.day()).isEqualTo(historical);
+    assertThat(day.meals()).isEmpty();
+    assertThat(day.remainingCalories()).isEqualTo(2364);
+  }
+
+  @Test
+  void totalsRoundEachMealToOneDecimalBeforeAdding() {
+    when(profiles.get("user-1")).thenReturn(profile(2000, CalorieGoalSource.COMPUTED));
+    when(meals.findByUserIdAndDayOrderByCreatedAtAsc("user-1", LocalDate.of(2026, 9, 28)))
+        .thenReturn(List.of(
+            stored("meal-1", "user-1", 10, 1.25, 0.14, 0.25),
+            stored("meal-2", "user-1", 10, 1.25, 0.14, 0.25)));
+
+    DayResponse day = service.day("user-1", LocalDate.of(2026, 9, 28));
+
+    assertThat(day.meals()).extracting(MealResponse::proteinG).containsExactly(1.3, 1.3);
+    assertThat(day.totals().proteinG()).isEqualTo(2.6);
+    assertThat(day.totals().carbsG()).isEqualTo(0.2);
+    assertThat(day.totals().fatG()).isEqualTo(0.6);
+    assertThat(day.remainingCalories()).isEqualTo(1980);
   }
 
   private static SaveMealRequest request(LocalDate day, String calories, String protein) {

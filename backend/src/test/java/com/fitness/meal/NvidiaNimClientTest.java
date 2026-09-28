@@ -5,10 +5,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitness.config.NvidiaDefaults;
 import com.fitness.config.NvidiaProperties;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -84,6 +87,92 @@ class NvidiaNimClientTest {
   }
 
   @Test
+  void http500DoesNotLeakTheUpstreamBody() throws Exception {
+    server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext("/v1/chat/completions", exchange -> {
+      byte[] response = "{\"error\":\"test-nim-key leaked upstream\"}".getBytes(StandardCharsets.UTF_8);
+      exchange.getResponseHeaders().add("Content-Type", "application/json");
+      exchange.sendResponseHeaders(500, response.length);
+      exchange.getResponseBody().write(response);
+      exchange.close();
+    });
+    server.start();
+
+    NvidiaNimClient client = client(
+        "http://127.0.0.1:" + server.getAddress().getPort() + "/v1",
+        "test-nim-key");
+
+    assertThatThrownBy(() -> client.complete("system", "soup"))
+        .isInstanceOf(NimException.class)
+        .hasMessageContaining("HTTP 500")
+        .hasMessageNotContaining("test-nim-key")
+        .hasMessageNotContaining("leaked");
+  }
+
+  @Test
+  void aReadTimeoutIsReportedWithoutCallingTheLiveNimHost() throws Exception {
+    server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext("/v1/chat/completions", exchange -> {
+      exchange.getRequestBody().readAllBytes();
+      try {
+        Thread.sleep(2_000);
+      } catch (InterruptedException ex) {
+        Thread.currentThread().interrupt();
+      }
+      exchange.sendResponseHeaders(204, -1);
+      exchange.close();
+    });
+    server.start();
+
+    NvidiaNimClient client = client(
+        "http://127.0.0.1:" + server.getAddress().getPort() + "/v1",
+        "test-nim-key",
+        1);
+
+    assertThatThrownBy(() -> client.complete("system", "soup"))
+        .isInstanceOf(NimException.class)
+        .hasMessageContaining("took too long")
+        .hasMessageNotContaining("integrate.api.nvidia.com");
+  }
+
+  @Test
+  void anEmptyBodyIsUnusable() throws Exception {
+    server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext("/v1/chat/completions", exchange -> {
+      exchange.getRequestBody().readAllBytes();
+      exchange.sendResponseHeaders(200, -1);
+      exchange.close();
+    });
+    server.start();
+
+    NvidiaNimClient client = client(
+        "http://127.0.0.1:" + server.getAddress().getPort() + "/v1",
+        "test-nim-key");
+
+    assertThatThrownBy(() -> client.complete("system", "soup"))
+        .isInstanceOf(NimException.class)
+        .hasMessageContaining("empty response");
+  }
+
+  @Test
+  void defaultsTargetLlamaOnTheVersionedNimChatApi() throws Exception {
+    assertThat(NvidiaDefaults.MODEL).isEqualTo("meta/llama-3.3-70b-instruct");
+    assertThat(NvidiaDefaults.BASE_URL).isEqualTo("https://integrate.api.nvidia.com/v1");
+
+    NvidiaProperties defaults = new NvidiaProperties(null, " ", " ", 0);
+    assertThat(defaults.hasApiKey()).isFalse();
+    assertThat(defaults.model()).isEqualTo("meta/llama-3.3-70b-instruct");
+    assertThat(defaults.baseUrl()).isEqualTo("https://integrate.api.nvidia.com/v1");
+    assertThat(defaults.baseUrl() + "/chat/completions")
+        .isEqualTo("https://integrate.api.nvidia.com/v1/chat/completions");
+    assertThat(NvidiaNimClient.buildClient(defaults)).isNotNull();
+
+    String yaml = Files.readString(Path.of("src/main/resources/application.yml"));
+    assertThat(yaml).contains("https://integrate.api.nvidia.com/v1");
+    assertThat(yaml).contains("meta/llama-3.3-70b-instruct");
+  }
+
+  @Test
   void aBlankKeyDoesNotOpenAConnection() throws Exception {
     AtomicInteger hits = new AtomicInteger();
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -103,8 +192,12 @@ class NvidiaNimClientTest {
   }
 
   private static NvidiaNimClient client(String baseUrl, String apiKey) {
+    return client(baseUrl, apiKey, 5);
+  }
+
+  private static NvidiaNimClient client(String baseUrl, String apiKey, int timeoutSeconds) {
     return new NvidiaNimClient(
-        new NvidiaProperties(apiKey, baseUrl, "meta/llama-3.3-70b-instruct", 5),
+        new NvidiaProperties(apiKey, baseUrl, " ", timeoutSeconds),
         new ObjectMapper());
   }
 }
