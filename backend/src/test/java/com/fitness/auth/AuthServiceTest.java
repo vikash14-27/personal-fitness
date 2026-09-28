@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fitness.calorie.CalorieCalculator;
+import com.fitness.calorie.ClampReason;
 import com.fitness.common.ApiException;
 import com.fitness.profile.CalorieGoalSource;
 import com.fitness.profile.ProfileService;
@@ -68,6 +69,39 @@ class AuthServiceTest {
   }
 
   @Test
+  void signupTrimsEmailAndStoresTheBioWithAComputedGoal() {
+    when(users.existsByEmail("ada@example.com")).thenReturn(false);
+    when(users.save(any(User.class))).thenAnswer(invocation -> {
+      User saved = invocation.getArgument(0);
+      saved.setId("user-1");
+      return saved;
+    });
+
+    AuthResponse response = authService.signup(readmeSignup("  Ada@Example.com  "));
+
+    org.mockito.ArgumentCaptor<User> captor = org.mockito.ArgumentCaptor.forClass(User.class);
+    verify(users).save(captor.capture());
+    User saved = captor.getValue();
+    assertThat(saved.getEmail()).isEqualTo("ada@example.com");
+    assertThat(saved.getAge()).isEqualTo(30);
+    assertThat(saved.getSex()).isEqualTo(Sex.MALE);
+    assertThat(saved.getHeightCm()).isEqualTo(180);
+    assertThat(saved.getCurrentWeightKg()).isEqualTo(90);
+    assertThat(saved.getTargetWeightKg()).isEqualTo(80);
+    assertThat(saved.getActivityLevel()).isEqualTo(ActivityLevel.MODERATELY_ACTIVE);
+    assertThat(saved.getTimelineWeeks()).isEqualTo(20);
+    assertThat(saved.getComputedCalorieGoal()).isEqualTo(2364);
+    assertThat(saved.getCalorieGoalOverride()).isNull();
+    assertThat(saved.getCalorieGoalClamp()).isEqualTo(ClampReason.NONE);
+    assertThat(saved.getCreatedAt()).isNotNull();
+    assertThat(passwordEncoder.matches("password123", saved.getPasswordHash())).isTrue();
+    assertThat(response.profile().email()).isEqualTo("ada@example.com");
+    assertThat(response.profile().bmr()).isEqualTo(1880);
+    assertThat(response.profile().tdee()).isEqualTo(2914);
+    assertThat(response.profile().dailyAdjustment()).isEqualTo(550);
+  }
+
+  @Test
   void signupRejectsADuplicateEmail() {
     when(users.existsByEmail("ada@example.com")).thenReturn(true);
 
@@ -96,6 +130,15 @@ class AuthServiceTest {
 
     assertThat(jwtService.parseUserId(response.token())).isEqualTo("user-1");
     assertThat(response.profile().activeCalorieGoal()).isEqualTo(2364);
+  }
+
+  @Test
+  void loginTrimsAndLowercasesTheEmail() {
+    when(users.findByEmail("ada@example.com")).thenReturn(Optional.of(storedUser()));
+
+    AuthResponse response = authService.login(new LoginRequest("  Ada@Example.com  ", "password123"));
+
+    assertThat(jwtService.parseUserId(response.token())).isEqualTo("user-1");
   }
 
   @Test
