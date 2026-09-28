@@ -8,6 +8,7 @@ import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -81,19 +82,17 @@ public class NvidiaNimClient implements NimCompletionClient {
       return readContent(raw);
     } catch (NimException ex) {
       throw ex;
-    } catch (ResourceAccessException ex) {
-      if (causedBy(ex, SocketTimeoutException.class)) {
-        throw new NimException("The estimate service took too long.", ex);
-      }
-      if (causedBy(ex, ConnectException.class)) {
-        throw new NimException("The estimate service could not be reached.", ex);
-      }
-      log.warn("NVIDIA NIM request failed: {}", ex.getClass().getSimpleName());
-      throw new NimException("The estimate service could not be reached.", ex);
     } catch (RestClientException ex) {
       NimException nim = findCause(ex, NimException.class);
       if (nim != null) {
         throw nim;
+      }
+      if (isTimeout(ex)) {
+        throw new NimException("The estimate service took too long.", ex);
+      }
+      if (ex instanceof ResourceAccessException || causedBy(ex, ConnectException.class)) {
+        log.warn("NVIDIA NIM request failed: {}", ex.getClass().getSimpleName());
+        throw new NimException("The estimate service could not be reached.", ex);
       }
       log.warn("NVIDIA NIM request failed: {}", ex.getClass().getSimpleName());
       throw new NimException("The estimate service returned an error.", ex);
@@ -163,6 +162,28 @@ public class NvidiaNimClient implements NimCompletionClient {
     factory.setConnectTimeout(Duration.ofSeconds(5));
     factory.setReadTimeout(Duration.ofSeconds(nvidia.timeoutSeconds()));
     return RestClient.builder().baseUrl(base).requestFactory(factory).build();
+  }
+
+  /**
+   * Read timeouts arrive as {@link RestClientException} or {@link ResourceAccessException}
+   * with a {@link SocketTimeoutException} somewhere in the cause chain, not always as the
+   * thrown type itself.
+   */
+  private static boolean isTimeout(Throwable ex) {
+    Throwable current = ex;
+    int depth = 0;
+    while (current != null && depth < 20) {
+      if (current instanceof SocketTimeoutException || current.getClass().getName().endsWith("TimeoutException")) {
+        return true;
+      }
+      String message = current.getMessage();
+      if (message != null && message.toLowerCase(Locale.ROOT).contains("timed out")) {
+        return true;
+      }
+      current = current.getCause();
+      depth++;
+    }
+    return false;
   }
 
   private static boolean causedBy(Throwable ex, Class<? extends Throwable> type) {
