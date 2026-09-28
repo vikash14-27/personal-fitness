@@ -66,6 +66,48 @@ export function validateBio(input: BioInput): Record<string, string> {
   return errors
 }
 
+export type MealInput = {
+  description: string
+  calories: string
+  proteinG: string
+  carbsG: string
+  fatG: string
+}
+
+function macroError(raw: string, label: string): string | null {
+  const value = raw.trim()
+  if (!value) return `${label} is required`
+  if (!/^\d+(\.\d)?$/.test(value)) return `${label} can have at most one decimal place`
+  const number = Number(value)
+  if (number < 0 || number > 1000) return `${label} must be between 0 and 1000 g`
+  return null
+}
+
+export function validateEstimateText(text: string): string | null {
+  const value = text.trim()
+  if (!value) return 'Describe what you ate'
+  if (value.length > 500) return 'Use 500 characters or fewer'
+  return null
+}
+
+export function validateMeal(input: MealInput): Record<string, string> {
+  const errors: Record<string, string> = {}
+  const description = input.description.trim()
+  if (!description) errors.description = 'Name the meal'
+  else if (description.length > 300) errors.description = 'Use 300 characters or fewer'
+  const calories = input.calories.trim()
+  if (!calories) errors.calories = 'Calories are required'
+  else if (!/^\d+$/.test(calories)) errors.calories = 'Calories must be a whole number'
+  else if (Number(calories) > 10000) errors.calories = 'Calories must be between 0 and 10000'
+  const protein = macroError(input.proteinG, 'Protein')
+  if (protein) errors.proteinG = protein
+  const carbs = macroError(input.carbsG, 'Carbs')
+  if (carbs) errors.carbsG = carbs
+  const fat = macroError(input.fatG, 'Fat')
+  if (fat) errors.fatG = fat
+  return errors
+}
+
 export function validateOverride(enabled: boolean, raw: string): string | null {
   if (!enabled) return null
   const value = raw.trim()

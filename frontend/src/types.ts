@@ -48,6 +48,40 @@ export type SignupPayload = {
   timelineWeeks: number
 }
 
+export type Meal = {
+  id: string
+  day: string
+  description: string
+  calories: number
+  proteinG: number
+  carbsG: number
+  fatG: number
+}
+
+export type MealEstimate = {
+  description: string
+  calories: number
+  proteinG: number
+  carbsG: number
+  fatG: number
+}
+
+export type MacroTotals = {
+  calories: number
+  proteinG: number
+  carbsG: number
+  fatG: number
+}
+
+export type DayView = {
+  day: string
+  calorieGoal: number
+  calorieGoalSource: CalorieGoalSource
+  meals: Meal[]
+  totals: MacroTotals
+  remainingCalories: number
+}
+
 export type ProfilePayload = {
   age: number
   sex: Sex

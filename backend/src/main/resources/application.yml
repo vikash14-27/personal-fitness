@@ -21,3 +21,8 @@ app:
     secret: ${JWT_SECRET:dev-only-jwt-secret-change-me-use-32b-min!!}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
   cors-origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+  nvidia:
+    api-key: ${NVIDIA_API_KEY:}
+    base-url: ${NVIDIA_API_BASE_URL:https://integrate.api.nvidia.com/v1}
+    model: ${NVIDIA_MODEL:meta/llama-3.3-70b-instruct}
+    timeout-seconds: ${NVIDIA_TIMEOUT_SECONDS:25}
