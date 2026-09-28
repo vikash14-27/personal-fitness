@@ -142,7 +142,7 @@ The API returns `400` with `error: "validation_failed"` and a `fields` map. Dupl
 | Current and target weight | 30–300 kg, at most one decimal place |
 | Activity | One of the five levels above |
 | Timeline | 1–104 weeks |
-| Manual calorie goal | Empty, or a whole number from 1000 to 5000 |
+| Manual calorie goal | Empty, or a whole number from 1000 to 5000. A fractional value such as `2200.5` is rejected. |
 
 ## API
 
