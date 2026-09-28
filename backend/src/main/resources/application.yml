@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: fitness-api
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/fitness}
+      auto-index-creation: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-jwt-secret-change-me-use-32b-min!!}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  cors-origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}

@@ -1,0 +1,12 @@
+.env
+.env.local
+*.log
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+backend/target/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
