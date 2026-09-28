@@ -18,7 +18,7 @@ export function Layout() {
           <span className="brand-mark" aria-hidden="true" />
           <span>
             <strong>Personal Fitness</strong>
-            <small>A daily calorie baseline</small>
+            <small>Meals and a daily calorie goal</small>
           </span>
         </NavLink>
         {token ? (

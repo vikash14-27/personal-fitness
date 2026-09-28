@@ -61,7 +61,7 @@ public class SecurityConfig {
   CorsConfigurationSource corsConfigurationSource(AppProperties properties) {
     CorsConfiguration config = new CorsConfiguration();
     config.setAllowedOrigins(properties.corsOrigins());
-    config.setAllowedMethods(List.of("GET", "POST", "PUT", "OPTIONS"));
+    config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
     config.setMaxAge(3600L);
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

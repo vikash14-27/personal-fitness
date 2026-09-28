@@ -10,6 +10,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -18,7 +19,8 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(ApiException.class)
   public ResponseEntity<ApiError> handleApi(ApiException ex) {
-    return ResponseEntity.status(ex.getStatus()).body(new ApiError(ex.getError(), ex.getMessage()));
+    return ResponseEntity.status(ex.getStatus())
+        .body(new ApiError(ex.getError(), ex.getMessage(), ex.getFields()));
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -35,7 +37,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.badRequest()
         .body(new ApiError(
             "invalid_body",
-            "The request body is invalid. Check sex, activity level, and numeric fields."));
+            "The request body is invalid. Check dates, choices, and numeric fields."));
+  }
+
+  @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+  public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+    String message = "day".equals(ex.getName())
+        ? "Use a date like 2026-09-28."
+        : "The request is invalid.";
+    return ResponseEntity.badRequest().body(new ApiError("invalid_request", message));
   }
 
   @ExceptionHandler(DataAccessException.class)
