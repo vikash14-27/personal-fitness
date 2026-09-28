@@ -1,0 +1,12 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: fitness-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - fitness-mongo:/data/db
+    restart: unless-stopped
+
+volumes:
+  fitness-mongo:
