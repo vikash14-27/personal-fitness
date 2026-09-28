@@ -1,11 +1,14 @@
 package com.fitness.profile;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import com.fitness.calorie.CalorieBounds;
 import com.fitness.calorie.CalorieCalculator;
 import com.fitness.calorie.ClampReason;
+import com.fitness.common.ApiException;
 import com.fitness.user.ActivityLevel;
 import com.fitness.user.Sex;
 import com.fitness.user.User;
@@ -13,6 +16,7 @@ import com.fitness.user.UserRepository;
 import java.math.BigDecimal;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.http.HttpStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -75,6 +79,74 @@ class ProfileServiceTest {
 
     assertThat(updated.computedCalorieGoal()).isEqualTo(2914);
     assertThat(updated.activeCalorieGoal()).isEqualTo(2100);
+    assertThat(updated.calorieGoalSource()).isEqualTo(CalorieGoalSource.OVERRIDE);
+  }
+
+  @Test
+  void getReturnsTheStoredProfile() {
+    User user = existingUser();
+    when(users.findById("user-1")).thenReturn(Optional.of(user));
+
+    ProfileResponse profile = profiles.get("user-1");
+
+    assertThat(profile.email()).isEqualTo("ada@example.com");
+    assertThat(profile.computedCalorieGoal()).isEqualTo(2364);
+    assertThat(profile.activeCalorieGoal()).isEqualTo(2364);
+    assertThat(profile.calorieGoalSource()).isEqualTo(CalorieGoalSource.COMPUTED);
+    assertThat(profile.calorieGoalOverride()).isNull();
+  }
+
+  @Test
+  void missingUserIsUnauthorized() {
+    when(users.findById("missing")).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -> profiles.get("missing"))
+        .isInstanceOf(ApiException.class)
+        .hasFieldOrPropertyWithValue("status", HttpStatus.UNAUTHORIZED)
+        .hasFieldOrPropertyWithValue("error", "unauthorized");
+    assertThatThrownBy(() -> profiles.update("missing", request(new BigDecimal("80"), null)))
+        .isInstanceOf(ApiException.class)
+        .hasFieldOrPropertyWithValue("error", "unauthorized");
+  }
+
+  @Test
+  void overrideBoundsStayActiveAndKeepTheComputedGoal() {
+    User user = existingUser();
+    when(users.findById("user-1")).thenReturn(Optional.of(user));
+    when(users.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+    ProfileResponse floor = profiles.update("user-1", request(new BigDecimal("80"), CalorieBounds.OVERRIDE_MIN_KCAL));
+    assertThat(floor.calorieGoalOverride()).isEqualTo(1000);
+    assertThat(floor.activeCalorieGoal()).isEqualTo(1000);
+    assertThat(floor.computedCalorieGoal()).isEqualTo(2364);
+    assertThat(floor.calorieGoalSource()).isEqualTo(CalorieGoalSource.OVERRIDE);
+
+    ProfileResponse ceiling = profiles.update("user-1", request(new BigDecimal("80"), CalorieBounds.OVERRIDE_MAX_KCAL));
+    assertThat(ceiling.calorieGoalOverride()).isEqualTo(5000);
+    assertThat(ceiling.activeCalorieGoal()).isEqualTo(5000);
+    assertThat(ceiling.computedCalorieGoal()).isEqualTo(2364);
+    assertThat(ceiling.calorieGoalSource()).isEqualTo(CalorieGoalSource.OVERRIDE);
+  }
+
+  @Test
+  void aggressiveLossStoresTheFloorWithoutDroppingAnOverride() {
+    User user = existingUser();
+    when(users.findById("user-1")).thenReturn(Optional.of(user));
+    when(users.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+    ProfileResponse updated = profiles.update("user-1", new UpdateProfileRequest(
+        80,
+        Sex.MALE,
+        new BigDecimal("160"),
+        new BigDecimal("120"),
+        new BigDecimal("70"),
+        ActivityLevel.SEDENTARY,
+        8,
+        1800));
+
+    assertThat(updated.computedCalorieGoal()).isEqualTo(CalorieBounds.MALE_FLOOR_KCAL);
+    assertThat(updated.calorieGoalClamp()).isEqualTo(ClampReason.FLOOR);
+    assertThat(updated.activeCalorieGoal()).isEqualTo(1800);
     assertThat(updated.calorieGoalSource()).isEqualTo(CalorieGoalSource.OVERRIDE);
   }
 
