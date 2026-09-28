@@ -78,4 +78,37 @@ class MealEstimateParserTest {
             "{\"description\":\"Soup\",\"calories\":50000,\"proteinG\":1,\"carbsG\":1,\"fatG\":1}"))
         .isInstanceOf(IllegalArgumentException.class);
   }
+
+  @Test
+  void rejectsFractionalCaloriesAndMacrosOutsideRange() {
+    assertThatThrownBy(() -> parser.parse(
+            "soup",
+            "{\"description\":\"Soup\",\"calories\":12.5,\"proteinG\":1,\"carbsG\":1,\"fatG\":1}"))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> parser.parse(
+            "soup",
+            "{\"description\":\"Soup\",\"calories\":12,\"proteinG\":-0.1,\"carbsG\":1,\"fatG\":1}"))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> parser.parse(
+            "soup",
+            "{\"description\":\"Soup\",\"calories\":12,\"proteinG\":1000.06,\"carbsG\":1,\"fatG\":1}"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void acceptsWholeCaloriesAndMacrosOnTheInclusiveBounds() {
+    MealEstimateResponse estimate = parser.parse(
+        "water",
+        "{\"calories\":0,\"proteinG\":0,\"carbsG\":1000,\"fatG\":1000.04}");
+
+    assertThat(estimate.calories()).isZero();
+    assertThat(estimate.proteinG()).isEqualTo(0.0);
+    assertThat(estimate.carbsG()).isEqualTo(1000.0);
+    assertThat(estimate.fatG()).isEqualTo(1000.0);
+
+    assertThat(parser.parse(
+            "feast",
+            "{\"description\":\"Feast\",\"calories\":10000,\"proteinG\":1,\"carbsG\":1,\"fatG\":1}")
+        .calories()).isEqualTo(10000);
+  }
 }

@@ -12,6 +12,7 @@ import com.fitness.common.ApiException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -57,6 +58,33 @@ class MealEstimateServiceTest {
   }
 
   @Test
+  void http500FromNimIsBadGateway() {
+    when(nim.isConfigured()).thenReturn(true);
+    when(nim.complete(anyString(), anyString()))
+        .thenThrow(new NimException("The estimate service returned HTTP 500."));
+
+    assertThatThrownBy(() -> estimates.estimate("user-1", "two eggs"))
+        .isInstanceOf(ApiException.class)
+        .hasMessageContaining("HTTP 500")
+        .hasMessageNotContaining("nvapi")
+        .extracting("status", "error")
+        .containsExactly(HttpStatus.BAD_GATEWAY, "estimate_failed");
+  }
+
+  @Test
+  void timeoutFromNimIsBadGateway() {
+    when(nim.isConfigured()).thenReturn(true);
+    when(nim.complete(anyString(), anyString()))
+        .thenThrow(new NimException("The estimate service took too long."));
+
+    assertThatThrownBy(() -> estimates.estimate("user-1", "two eggs"))
+        .isInstanceOf(ApiException.class)
+        .hasMessageContaining("too long")
+        .extracting("status", "error")
+        .containsExactly(HttpStatus.BAD_GATEWAY, "estimate_failed");
+  }
+
+  @Test
   void unusableModelOutputDoesNotCrash() {
     when(nim.isConfigured()).thenReturn(true);
     when(nim.complete(anyString(), anyString())).thenReturn("I can't help with that.");
@@ -64,8 +92,24 @@ class MealEstimateServiceTest {
     assertThatThrownBy(() -> estimates.estimate("user-1", "two eggs"))
         .isInstanceOf(ApiException.class)
         .hasMessageContaining("usable form")
-        .extracting("error")
-        .isEqualTo("estimate_failed");
+        .extracting("status", "error")
+        .containsExactly(HttpStatus.BAD_GATEWAY, "estimate_failed");
+  }
+
+  @Test
+  void sendsTheCollapsedMealTextToNim() {
+    when(nim.isConfigured()).thenReturn(true);
+    when(nim.complete(anyString(), anyString())).thenReturn(
+        "{\"description\":\"Two eggs\",\"calories\":156,\"proteinG\":12.4,\"carbsG\":1.2,\"fatG\":10.6}");
+
+    estimates.estimate("user-1", "  two   eggs  ");
+
+    ArgumentCaptor<String> system = ArgumentCaptor.forClass(String.class);
+    ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
+    verify(nim).complete(system.capture(), user.capture());
+    assertThat(system.getValue()).contains("JSON");
+    assertThat(user.getValue()).contains("two eggs");
+    assertThat(user.getValue()).doesNotContain("  two");
   }
 
   @Test
