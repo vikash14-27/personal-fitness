@@ -1,5 +1,6 @@
 package com.fitness.profile;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fitness.calorie.CalorieBounds;
 import com.fitness.user.ActivityLevel;
 import com.fitness.user.Sex;
@@ -48,4 +49,5 @@ public record UpdateProfileRequest(
 
     @Min(value = CalorieBounds.OVERRIDE_MIN_KCAL, message = "Manual calorie goal must be between 1000 and 5000 kcal")
     @Max(value = CalorieBounds.OVERRIDE_MAX_KCAL, message = "Manual calorie goal must be between 1000 and 5000 kcal")
+    @JsonDeserialize(using = WholeNumberKcalDeserializer.class)
     Integer calorieGoalOverride) {}
